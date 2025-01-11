@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Rotation Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Work Rotation Scheduler</h1>
+    </header>
+    <main>
+        <form id="worker-form">
+            <section>
+                <h2>Step 1: Enter Workers</h2>
+                <textarea name="workers" id="workers" placeholder="Enter worker names, one per line" required></textarea>
+            </section>
+            <section>
+                <h2>Step 2: Input Weekly Schedule</h2>
+                <p>Mark availability for each worker across the week:</p>
+                <table id="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>Worker</th>
+                            <th>Monday</th>
+                            <th>Tuesday</th>
+                            <th>Wednesday</th>
+                            <th>Thursday</th>
+                            <th>Friday</th>
+                            <th>Saturday</th>
+                            <th>Sunday</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Schedule rows will be dynamically generated in JavaScript -->
+                    </tbody>
+                </table>
+            </section>
+            <section>
+                <h2>Step 3: Number of Sections</h2>
+                <label for="sections">Enter the number of sections:</label>
+                <input type="number" id="sections" name="sections" min="1" required>
+            </section>
+            <button type="submit">Generate Schedule</button>
+        </form>
+        <div id="schedule-output"></div>
+    </main>
+    <script>
+        const workersInput = document.getElementById("workers");
+        const scheduleTableBody = document.querySelector("#schedule-table tbody");
+        const form = document.getElementById("worker-form");
+
+        workersInput.addEventListener("input", () => {
+            const workerNames = workersInput.value.trim().split(/\n+/);
+            updateScheduleTable(workerNames);
+        });
+
+        function updateScheduleTable(workerNames) {
+            scheduleTableBody.innerHTML = "";
+
+            workerNames.forEach(worker => {
+                if (worker.trim() !== "") {
+                    const row = document.createElement("tr");
+
+                    const nameCell = document.createElement("td");
+                    nameCell.textContent = worker;
+                    row.appendChild(nameCell);
+
+                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(day => {
+                        const cell = document.createElement("td");
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.name = `${worker}-day-${day}`;
+                        cell.appendChild(checkbox);
+                        row.appendChild(cell);
+                    });
+
+                    scheduleTableBody.appendChild(row);
+                }
+            });
+        }
+
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const formData = new FormData(form);
+
+            fetch('/generate_schedule', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    alert(`Error: ${data.error}`);
+                } else {
+                    let scheduleHTML = "<h2>Generated Schedule:</h2>";
+
+                    // Explicitly iterate days in the correct order
+                    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                    for (const day of days) {
+                        const assignments = data[day];
+                        scheduleHTML += `<h3>${day}:</h3><ul>`;
+                        for (const [section, worker] of Object.entries(assignments)) {
+                            scheduleHTML += `<li>${section}: ${worker}</li>`;
+                        }
+                        scheduleHTML += `</ul>`;
+                    }
+
+                    document.getElementById("schedule-output").innerHTML = scheduleHTML;
+                }
+            })
+            .catch(error => {
+                alert(`Error: ${error.message}`);
+            });
+        });
+    </script>
+</body>
+</html>

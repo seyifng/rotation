@@ -1,0 +1,125 @@
+/* General Reset */
+body, h1, h2, p, table, input, textarea, button {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Arial', sans-serif;
+}
+
+body {
+  background-color: #f9f9f9;
+  color: #333;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+}
+
+header {
+  background: linear-gradient(90deg, #4caf50, #81c784);
+  color: #fff;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+header h1 {
+  font-size: 2rem;
+  margin: 0;
+}
+
+main {
+  max-width: 800px;
+  margin: 2rem auto;
+  background: #fff;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 2rem;
+}
+
+form section {
+  margin-bottom: 2rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  color: #4caf50;
+  margin-bottom: 0.5rem;
+}
+
+textarea, input[type="number"] {
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+table th, table td {
+  padding: 0.5rem;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+th {
+  background-color: #f1f1f1;
+  font-weight: bold;
+}
+
+td {
+  background-color: #fff;
+}
+
+input[type="checkbox"] {
+  transform: scale(1.2);
+  cursor: pointer;
+}
+
+button {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  color: #fff;
+  background: #4caf50;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #388e3c;
+}
+
+#schedule-output {
+  margin-top: 2rem;
+  padding: 1rem;
+  background: #f1f1f1;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#schedule-output h2 {
+  color: #388e3c;
+  font-size: 1.25rem;
+}
+
+#schedule-output ul {
+  list-style: none;
+  padding: 0;
+}
+
+#schedule-output li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+#schedule-output li:last-child {
+  border-bottom: none;
+}
