@@ -1,127 +1,201 @@
 from flask import Flask, render_template, request, jsonify
-from collections import defaultdict
-import random
 
-# Initialize the Flask application
 app = Flask(__name__)
 
-# Define the days of the week
+# Days of the week in display order
 DAYS = (
-    "Monday", 
-    "Tuesday", 
-    "Wednesday", 
-    "Thursday", 
-    "Friday", 
-    "Saturday", 
-    "Sunday"
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
 )
 
-def assign_workers_to_sections(workers_schedule, workers, sections):
+# Sentinel meaning a worker has never been assigned to a particular section.
+# Using -1 makes it sort as "oldest possible" so never-visited sections are
+# always preferred over ones the worker has already been in.
+NEVER = -1
+
+
+def assign_workers_to_sections(daily_availability, all_workers, num_sections):
     """
-    Assigns workers to sections based on their availability in the workers_schedule.
+    Assigns workers to sections each day, trying to:
+      1. Never put a worker in the same section on back-to-back days (hard rule,
+         broken only when truly no other option exists).
+      2. Prefer the section the worker has gone the longest without visiting
+         (soft rule — full rotation before revisiting).
+      3. When multiple workers want the same section, the one who has waited
+         longer for it wins; the other falls back to their next-best option.
 
-    workers_schedule: Dictionary where the key is a day of the week, 
-                      and the value is a list of workers available that day.
-    workers: List of all workers.
-    sections: The number of sections to assign workers to each day.
+    Args:
+        daily_availability: Dict mapping each day name to the list of workers
+                            available that day. e.g. {"Monday": ["Alice", "Bob"]}
+        all_workers:        Complete list of all workers (used to initialise
+                            history tracking).
+        num_sections:       How many sections exist per day.
 
-    Returns: A dictionary with the schedule for each day of the week, 
-             showing which worker is assigned to which section.
+    Returns:
+        A dict mapping each day name to a dict of section assignments.
+        e.g. {"Monday": {"Section 1": "Alice", "Section 2": "Bob"}}
     """
-    
-    # Initialize the weekly schedule for each day with empty sections
-    weekly_schedule = {day: {} for day in workers_schedule.keys()}
 
-    # Create a history for each worker tracking their assigned sections (0 means not assigned)
-    schedule_history = {worker: [0] * sections for worker in workers}
-    print(f'{schedule_history=}')  # Debug: print the initial schedule history
+    # last_assigned_day[worker][section_index] = the day-index on which that
+    # worker was last placed in that section (NEVER = has never been there).
+    # A lower value means the worker has gone longer without that section,
+    # so lower = more preferred.
+    last_assigned_day = {
+        worker: [NEVER] * num_sections for worker in all_workers
+    }
 
-    # Loop through each day in the workers' schedule
-    for day, workers in workers_schedule.items():
-        # Create an empty dictionary to track which worker is assigned to which section for the day
-        daily_sections = {f'Section {i+1}': "None" for i in range(sections)}
-        recycled_people = []  # Keep track of workers who were not assigned any section
+    section_keys = [f"Section {i + 1}" for i in range(num_sections)]
+    weekly_schedule = {}
 
-        print(f'{daily_sections=}')  # Debug: print the daily sections before assignments
-        print(f'{workers=}')  # Debug: print the list of workers available for the day
-        
-        # Loop through each worker available on the current day
-        for worker in workers:
-            print(f'{worker=}')  # Debug: print the worker being processed
+    for day_index, (day, available_workers) in enumerate(daily_availability.items()):
 
-            # If the worker has no previous assignments, reset their schedule history
-            if 0 not in schedule_history[worker]:
-                schedule_history[worker] = [0] * sections
+        # Start each day with every section empty.
+        day_assignments = {section: None for section in section_keys}
 
-            # Try to assign the worker to a section if they haven't been assigned yet
-            for i, availability in enumerate(schedule_history[worker]):
-                # If the worker is available and the section is free, assign them
-                if availability == 0 and daily_sections[f'Section {i+1}'] == "None":
-                    daily_sections[f'Section {i+1}'] = worker
-                    schedule_history[worker][i] = 1  # Mark the section as occupied for this worker
-                    print(f'{daily_sections=}')  # Debug: print updated daily sections
-                    break  # Break out of the loop once the worker is assigned to a section
-                
-                # If all sections are checked, add the worker to the recycled list
-                if i == sections - 1:
-                    recycled_people.append(worker)
+        def section_preference(worker):
+            """
+            Returns section indices sorted from most-preferred to least-preferred
+            for this worker on this day.
 
-        # Debug: print recycled workers who could not be assigned initially
-        print(f'{recycled_people=}')
-        
-        # Reassign recycled workers to any remaining free sections
-        for worker in recycled_people:
-            print(f'{worker=}')  # Debug: print the recycled worker
-            for i, curr_sex in enumerate(daily_sections.values()):
-                if curr_sex == "None":  # Find an empty section
-                    daily_sections[f'Section {i+1}'] = worker
-                    schedule_history[worker][i] = 1  # Mark the section as occupied
+            Sort key per section (ascending = more preferred):
+              1. Was this their section yesterday? (True sorts after False, so
+                 yesterday's section is pushed to the back.)
+              2. How long ago were they last here? (lower last_assigned_day value
+                 = longer ago = more preferred, so we sort ascending on it.)
+            """
+            yesterday_index = day_index - 1  # negative on day 0 — never matches
 
-        # Add the assigned daily sections to the weekly schedule
-        weekly_schedule[day] = daily_sections
+            def sort_key(section_idx):
+                was_here_yesterday = (
+                    last_assigned_day[worker][section_idx] == yesterday_index
+                )
+                last_visit = last_assigned_day[worker][section_idx]
+                return (was_here_yesterday, last_visit)
 
-    # Debug: print the final weekly schedule
-    print(f'{weekly_schedule=}')
+            return sorted(range(num_sections), key=sort_key)
+
+        # Build a ranked preference list for every available worker.
+        # preferences[worker] = [most-wanted section idx, ..., least-wanted idx]
+        preferences = {worker: section_preference(worker) for worker in available_workers}
+
+        # --- Greedy assignment with conflict resolution ---
+        #
+        # Each pass: every unassigned worker claims their current top-preference
+        # section. If two workers claim the same section, the one who has waited
+        # longer wins; the loser drops that section and retries next pass.
+        # Repeat until everyone is placed or no sections remain.
+
+        unassigned = list(available_workers)
+
+        while unassigned:
+            # --- Phase 1: build claims without modifying preferences yet ---
+            # Each worker tentatively claims their current top-preference section.
+            # Conflicts are resolved purely by who has waited longer; no preference
+            # lists are mutated here so no worker loses their place unfairly.
+            claims = {}  # section_idx -> winning worker for this pass
+
+            for worker in unassigned:
+                if not preferences[worker]:
+                    continue  # no sections left for this worker
+
+                top_idx = preferences[worker][0]
+
+                if top_idx not in claims:
+                    claims[top_idx] = worker
+                else:
+                    # Conflict: worker who visited this section longest ago wins.
+                    # Ties go to the current holder.
+                    current_holder  = claims[top_idx]
+                    holder_last     = last_assigned_day[current_holder][top_idx]
+                    challenger_last = last_assigned_day[worker][top_idx]
+
+                    if challenger_last < holder_last:
+                        # Challenger waited longer — they win the claim.
+                        claims[top_idx] = worker
+                    # Loser is determined in Phase 2; we don't pop anything here.
+
+            # --- Phase 2: commit winners, drop the losing section for losers ---
+            next_unassigned = []
+
+            for worker in unassigned:
+                if not preferences[worker]:
+                    # Exhausted all preferences (more workers than sections).
+                    continue
+
+                top_idx = preferences[worker][0]
+
+                if claims.get(top_idx) == worker:
+                    # This worker won — assign them and record the day.
+                    section_key = section_keys[top_idx]
+                    day_assignments[section_key] = worker
+                    last_assigned_day[worker][top_idx] = day_index
+                    preferences[worker].pop(0)  # consume the winning preference
+                else:
+                    # This worker lost the conflict for top_idx.
+                    # Drop that section so they try their next preference next pass.
+                    preferences[worker].pop(0)
+                    next_unassigned.append(worker)
+
+            # If no progress was made, remaining workers exceed available sections.
+            if len(next_unassigned) == len(unassigned):
+                break
+
+            unassigned = next_unassigned
+
+        # Mark any sections that went unfilled as "Unassigned".
+        for section in section_keys:
+            if day_assignments[section] is None:
+                day_assignments[section] = "Unassigned"
+
+        weekly_schedule[day] = day_assignments
+
     return weekly_schedule
 
-# Route for the main page
-@app.route('/')
-def index():
-    return render_template('index.html')
 
-# Route to generate the schedule based on user input
-@app.route('/generate_schedule', methods=['POST'])
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/generate_schedule", methods=["POST"])
 def generate_schedule():
     try:
-        # Get the workers and sections from the form input
-        workers = request.form['workers'].splitlines()
-        sections = int(request.form['sections'])
+        # Parse the newline-separated worker list from the form.
+        raw_workers = request.form["workers"].splitlines()
+        all_workers = [w.strip() for w in raw_workers if w.strip()]
 
-        # Clean up the worker list, removing empty lines
-        workers = [worker.strip() for worker in workers if worker.strip()]
+        if not all_workers:
+            raise ValueError("Please provide at least one worker.")
 
-        # Create a dictionary to store the workers' schedule
-        workers_schedule = {}
-        
-        # Populate the workers' schedule based on form input for each day
+        num_sections = int(request.form["sections"])
+        if num_sections < 1:
+            raise ValueError("Number of sections must be at least 1.")
+
+        # Build the availability dict: for each day, collect workers whose
+        # checkbox for that day was ticked.
+        daily_availability = {}
         for day in DAYS:
-            workers_schedule[day] = []
-            for worker in workers:
-                checkbox_name = f"{worker}-day-{day}"
-                if request.form.get(checkbox_name):  # If the worker is assigned to this day
-                    workers_schedule[day].append(worker)
+            daily_availability[day] = [
+                worker for worker in all_workers
+                if request.form.get(f"{worker}-day-{day}")
+            ]
 
-        # Generate the schedule by assigning workers to sections
-        schedule = assign_workers_to_sections(workers_schedule, workers, sections)
+        schedule = assign_workers_to_sections(
+            daily_availability, all_workers, num_sections
+        )
 
-        # Return the schedule, ensuring the days are ordered
+        # Return days in the canonical DAYS order.
         ordered_schedule = {day: schedule[day] for day in DAYS}
         return jsonify(ordered_schedule)
 
-    except ValueError as e:
-        # Handle any value errors (e.g., invalid sections input)
-        return jsonify({"error": str(e)}), 400
+    except (ValueError, KeyError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
-# Start the Flask application
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run(debug=True)
