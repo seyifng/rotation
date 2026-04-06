@@ -1,125 +1,248 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Work Rotation Scheduler</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+
     <header>
-        <h1>Work Rotation Scheduler</h1>
+      <div class="header-inner">
+        <h1>Work Rotation<br /><em>Scheduler</em></h1>
+        <p class="header-sub">
+          Assign workers to sections fairly across the week.
+        </p>
+      </div>
     </header>
+
     <main>
-        <form id="worker-form">
-            <section>
-                <h2>Step 1: Enter Workers</h2>
-                <textarea name="workers" id="workers" placeholder="Enter worker names, one per line" required></textarea>
-            </section>
-            <section>
-                <h2>Step 2: Input Weekly Schedule</h2>
-                <p>Mark availability for each worker across the week:</p>
-                <table id="schedule-table">
-                    <thead>
-                        <tr>
-                            <th>Worker</th>
-                            <th>Monday</th>
-                            <th>Tuesday</th>
-                            <th>Wednesday</th>
-                            <th>Thursday</th>
-                            <th>Friday</th>
-                            <th>Saturday</th>
-                            <th>Sunday</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Schedule rows will be dynamically generated in JavaScript -->
-                    </tbody>
-                </table>
-            </section>
-            <section>
-                <h2>Step 3: Number of Sections</h2>
-                <label for="sections">Enter the number of sections:</label>
-                <input type="number" id="sections" name="sections" min="1" required>
-            </section>
-            <button type="submit">Generate Schedule</button>
-        </form>
-        <div id="schedule-output"></div>
+      <form id="worker-form">
+        <div class="step">
+          <div class="step-number">01</div>
+          <div class="step-body">
+            <h2>Enter Workers</h2>
+            <p>One name per line.</p>
+            <textarea
+              name="workers"
+              id="workers"
+              placeholder="e.g.&#10;Alice&#10;Bob&#10;Carol"
+              required
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">02</div>
+          <div class="step-body">
+            <h2>Weekly Availability</h2>
+            <p>Mark which days each worker is available.</p>
+            <div class="table-wrap">
+              <table id="schedule-table">
+                <thead>
+                  <tr>
+                    <th>Worker</th>
+                    <th>Mon</th>
+                    <th>Tue</th>
+                    <th>Wed</th>
+                    <th>Thu</th>
+                    <th>Fri</th>
+                    <th>Sat</th>
+                    <th>Sun</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Dynamically generated -->
+                </tbody>
+              </table>
+              <p class="table-empty" id="table-empty">
+                Enter worker names above to populate the table.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">03</div>
+          <div class="step-body">
+            <h2>Number of Sections</h2>
+            <p>How many sections need to be filled each day?</p>
+            <input
+              type="number"
+              id="sections"
+              name="sections"
+              min="1"
+              placeholder="e.g. 3"
+              required
+            />
+          </div>
+        </div>
+
+        <div class="form-footer">
+          <button type="submit">
+            <span>Generate Schedule</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </form>
+
+      <div id="schedule-output" class="hidden"></div>
     </main>
+
     <script>
-        const workersInput = document.getElementById("workers");
-        const scheduleTableBody = document.querySelector("#schedule-table tbody");
-        const form = document.getElementById("worker-form");
+      const workersInput = document.getElementById("workers");
+      const tableBody = document.querySelector("#schedule-table tbody");
+      const tableEmpty = document.getElementById("table-empty");
+      const scheduleTable = document.getElementById("schedule-table");
+      const form = document.getElementById("worker-form");
+      const scheduleOutput = document.getElementById("schedule-output");
 
-        workersInput.addEventListener("input", () => {
-            const workerNames = workersInput.value.trim().split(/\n+/);
-            updateScheduleTable(workerNames);
-        });
+      const DAYS = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+      ];
+      const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-        function updateScheduleTable(workerNames) {
-            scheduleTableBody.innerHTML = "";
+      workersInput.addEventListener("input", () => {
+        const names = workersInput.value
+          .trim()
+          .split(/\n+/)
+          .map((n) => n.trim())
+          .filter(Boolean);
+        renderTable(names);
+      });
 
-            workerNames.forEach(worker => {
-                if (worker.trim() !== "") {
-                    const row = document.createElement("tr");
+      function renderTable(workerNames) {
+        tableBody.innerHTML = "";
 
-                    const nameCell = document.createElement("td");
-                    nameCell.textContent = worker;
-                    row.appendChild(nameCell);
-
-                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(day => {
-                        const cell = document.createElement("td");
-                        const checkbox = document.createElement("input");
-                        checkbox.type = "checkbox";
-                        checkbox.name = `${worker}-day-${day}`;
-                        cell.appendChild(checkbox);
-                        row.appendChild(cell);
-                    });
-
-                    scheduleTableBody.appendChild(row);
-                }
-            });
+        if (workerNames.length === 0) {
+          scheduleTable.classList.add("hidden");
+          tableEmpty.classList.remove("hidden");
+          return;
         }
 
-        form.addEventListener('submit', function(event) {
-            event.preventDefault();
+        scheduleTable.classList.remove("hidden");
+        tableEmpty.classList.add("hidden");
 
-            const formData = new FormData(form);
+        workerNames.forEach((worker, i) => {
+          const row = document.createElement("tr");
+          row.style.animationDelay = `${i * 40}ms`;
+          row.classList.add("row-in");
 
-            fetch('/generate_schedule', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.error) {
-                    alert(`Error: ${data.error}`);
-                } else {
-                    let scheduleHTML = "<h2>Generated Schedule:</h2>";
+          const nameCell = document.createElement("td");
+          nameCell.textContent = worker;
+          nameCell.classList.add("worker-name");
+          row.appendChild(nameCell);
 
-                    // Explicitly iterate days in the correct order
-                    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-                    for (const day of days) {
-                        const assignments = data[day];
-                        scheduleHTML += `<h3>${day}:</h3><ul>`;
-                        for (const [section, worker] of Object.entries(assignments)) {
-                            scheduleHTML += `<li>${section}: ${worker}</li>`;
-                        }
-                        scheduleHTML += `</ul>`;
-                    }
+          DAYS.forEach((day) => {
+            const cell = document.createElement("td");
+            const label = document.createElement("label");
+            label.classList.add("checkbox-label");
 
-                    document.getElementById("schedule-output").innerHTML = scheduleHTML;
-                }
-            })
-            .catch(error => {
-                alert(`Error: ${error.message}`);
-            });
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.name = `${worker}-day-${day}`;
+
+            const box = document.createElement("span");
+            box.classList.add("checkbox-box");
+
+            label.appendChild(checkbox);
+            label.appendChild(box);
+            cell.appendChild(label);
+            row.appendChild(cell);
+          });
+
+          tableBody.appendChild(row);
         });
+      }
+
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const btn = form.querySelector("button[type=submit]");
+        btn.classList.add("loading");
+        btn.disabled = true;
+
+        fetch("/generate_schedule", {
+          method: "POST",
+          body: new FormData(form),
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          })
+          .then((data) => {
+            if (data.error) {
+              alert(`Error: ${data.error}`);
+              return;
+            }
+            renderSchedule(data);
+          })
+          .catch((err) => alert(`Error: ${err.message}`))
+          .finally(() => {
+            btn.classList.remove("loading");
+            btn.disabled = false;
+          });
+      });
+
+      function renderSchedule(data) {
+        let html = `<h2 class="output-title">Generated Schedule</h2><div class="schedule-grid">`;
+
+        for (const day of DAYS) {
+          const assignments = data[day];
+          const sections = Object.entries(assignments);
+          const hasUnassigned = sections.some(([, w]) => w === "Unassigned");
+
+          html += `<div class="day-card ${hasUnassigned ? "has-warning" : ""}">
+                    <div class="day-name">${day}</div>
+                    <ul class="section-list">`;
+
+          for (const [section, worker] of sections) {
+            const isUnassigned = worker === "Unassigned";
+            html += `<li class="section-item ${isUnassigned ? "unassigned" : ""}">
+                        <span class="section-label">${section}</span>
+                        <span class="section-worker">${worker}</span>
+                    </li>`;
+          }
+
+          html += `</ul></div>`;
+        }
+
+        html += `</div>`;
+
+        scheduleOutput.innerHTML = html;
+        scheduleOutput.classList.remove("hidden");
+        scheduleOutput.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     </script>
-</body>
+  </body>
 </html>
